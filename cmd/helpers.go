@@ -1,14 +1,17 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/spf13/viper"
 
+	"github.com/pavlo/purge/internal/discord"
 	"github.com/pavlo/purge/internal/filter"
 	"github.com/pavlo/purge/internal/types"
 	"github.com/pavlo/purge/internal/ui"
@@ -183,4 +186,55 @@ func filterDescriptionString(fo FilterOptions) string {
 		parts = append(parts, "exclude-pinned")
 	}
 	return strings.Join(parts, ", ")
+}
+
+// buildChannelNameMap fetches all channels for a guild and returns a map of channel ID → name.
+func buildChannelNameMap(ctx context.Context, client *discord.Client, guildID string) (map[string]string, error) {
+	channels, err := client.GetChannels(ctx, guildID)
+	if err != nil {
+		return nil, err
+	}
+	nameMap := make(map[string]string, len(channels))
+	for _, ch := range channels {
+		nameMap[ch.ID] = ch.Name
+	}
+	return nameMap, nil
+}
+
+// groupMessagesByChannel groups messages by their ChannelID and returns per-channel ScanResult entries.
+func groupMessagesByChannel(messages []*types.Message, guildID string) []types.ScanResult {
+	// Group messages by channel ID.
+	channelMsgs := make(map[string][]*types.Message)
+	channelNames := make(map[string]string)
+	for _, msg := range messages {
+		channelMsgs[msg.ChannelID] = append(channelMsgs[msg.ChannelID], msg)
+		if channelNames[msg.ChannelID] == "" {
+			channelNames[msg.ChannelID] = msg.ChannelName
+		}
+	}
+
+	// Build sorted results.
+	var channelIDs []string
+	for id := range channelMsgs {
+		channelIDs = append(channelIDs, id)
+	}
+	sort.Strings(channelIDs)
+
+	var results []types.ScanResult
+	for _, chID := range channelIDs {
+		msgs := channelMsgs[chID]
+		chName := channelNames[chID]
+		if chName == "" {
+			chName = chID
+		}
+		ch := types.Channel{
+			ID:       chID,
+			Name:     chName,
+			Platform: "discord",
+			ServerID: guildID,
+		}
+		results = append(results, buildScanResult(ch, msgs))
+	}
+
+	return results
 }
