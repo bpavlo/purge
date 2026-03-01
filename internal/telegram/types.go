@@ -8,7 +8,7 @@ import (
 
 	"github.com/gotd/td/tg"
 
-	"github.com/pavlo/purge/internal/types"
+	"github.com/bpavlo/purge/internal/types"
 )
 
 // Sentinel errors.

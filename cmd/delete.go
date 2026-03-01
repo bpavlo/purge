@@ -12,14 +12,14 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/pavlo/purge/internal/archive"
-	"github.com/pavlo/purge/internal/checkpoint"
-	"github.com/pavlo/purge/internal/discord"
-	"github.com/pavlo/purge/internal/filter"
-	"github.com/pavlo/purge/internal/ratelimit"
-	"github.com/pavlo/purge/internal/telegram"
-	"github.com/pavlo/purge/internal/types"
-	"github.com/pavlo/purge/internal/ui"
+	"github.com/bpavlo/purge/internal/archive"
+	"github.com/bpavlo/purge/internal/checkpoint"
+	"github.com/bpavlo/purge/internal/discord"
+	"github.com/bpavlo/purge/internal/filter"
+	"github.com/bpavlo/purge/internal/ratelimit"
+	"github.com/bpavlo/purge/internal/telegram"
+	"github.com/bpavlo/purge/internal/types"
+	"github.com/bpavlo/purge/internal/ui"
 )
 
 var deleteCmd = &cobra.Command{

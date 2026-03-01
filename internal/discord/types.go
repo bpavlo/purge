@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pavlo/purge/internal/types"
+	"github.com/bpavlo/purge/internal/types"
 )
 
 // User represents a Discord user.

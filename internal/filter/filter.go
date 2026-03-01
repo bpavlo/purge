@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pavlo/purge/internal/types"
+	"github.com/bpavlo/purge/internal/types"
 )
 
 // Options defines all available filter criteria. All conditions are combined with AND logic.

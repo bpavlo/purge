@@ -11,9 +11,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/pavlo/purge/internal/discord"
-	"github.com/pavlo/purge/internal/ratelimit"
-	"github.com/pavlo/purge/internal/telegram"
+	"github.com/bpavlo/purge/internal/discord"
+	"github.com/bpavlo/purge/internal/ratelimit"
+	"github.com/bpavlo/purge/internal/telegram"
 )
 
 var authCmd = &cobra.Command{

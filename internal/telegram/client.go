@@ -9,7 +9,7 @@ import (
 	"github.com/gotd/td/telegram/auth"
 	"github.com/gotd/td/tg"
 
-	"github.com/pavlo/purge/internal/ratelimit"
+	"github.com/bpavlo/purge/internal/ratelimit"
 )
 
 // Client wraps the gotd Telegram client with session management and rate limiting.

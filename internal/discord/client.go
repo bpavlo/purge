@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/pavlo/purge/internal/ratelimit"
+	"github.com/bpavlo/purge/internal/ratelimit"
 )
 
 const (

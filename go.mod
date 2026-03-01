@@ -1,4 +1,4 @@
-module github.com/pavlo/purge
+module github.com/bpavlo/purge
 
 go 1.25.5
 

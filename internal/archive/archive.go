@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pavlo/purge/internal/types"
+	"github.com/bpavlo/purge/internal/types"
 )
 
 // ArchiveMetadata holds metadata about the export operation.

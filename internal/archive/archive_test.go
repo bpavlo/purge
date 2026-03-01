@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pavlo/purge/internal/types"
+	"github.com/bpavlo/purge/internal/types"
 )
 
 func TestArchiveCreatesDirectoryAndFile(t *testing.T) {

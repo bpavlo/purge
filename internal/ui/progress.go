@@ -13,7 +13,7 @@ import (
 	"github.com/mattn/go-isatty"
 	"github.com/schollz/progressbar/v3"
 
-	"github.com/pavlo/purge/internal/types"
+	"github.com/bpavlo/purge/internal/types"
 )
 
 // OutputMode controls how output is rendered.

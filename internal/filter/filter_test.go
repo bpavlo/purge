@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pavlo/purge/internal/types"
+	"github.com/bpavlo/purge/internal/types"
 )
 
 func makeMsg(content string, ts time.Time) *types.Message {

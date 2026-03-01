@@ -1,6 +1,6 @@
 package main
 
-import "github.com/pavlo/purge/cmd"
+import "github.com/bpavlo/purge/cmd"
 
 func main() {
 	cmd.Execute()
