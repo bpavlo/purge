@@ -1,0 +1,65 @@
+# Purge Configuration File
+# Place this at ~/.config/purge/purge.yaml
+
+# ─── Output Settings ────────────────────────────────────────────────
+# verbose: enable verbose output (same as --verbose flag)
+verbose: false
+
+# quiet: suppress all output except errors and summary (same as --quiet flag)
+quiet: false
+
+# json: output in machine-readable JSON format (same as --json flag)
+json: false
+
+# log_level: logging verbosity — debug, info, warn, error
+log_level: info
+
+# ─── Discord Settings ───────────────────────────────────────────────
+discord:
+  # token: your Discord user token (keep this secret!)
+  # Alternatively set PURGE_DISCORD_TOKEN env var
+  token: ""
+
+# ─── Telegram Settings ──────────────────────────────────────────────
+telegram:
+  # api_id: your Telegram API ID from https://my.telegram.org
+  # Alternatively set PURGE_TELEGRAM_API_ID env var
+  api_id: ""
+
+  # api_hash: your Telegram API hash from https://my.telegram.org
+  # Alternatively set PURGE_TELEGRAM_API_HASH env var
+  api_hash: ""
+
+  # phone: your phone number (with country code, e.g. +1234567890)
+  phone: ""
+
+# ─── Archive Settings ───────────────────────────────────────────────
+# archive_dir: default directory for archived messages
+archive_dir: ~/purge-archive
+
+# archive_format: output format — json, csv, txt
+archive_format: json
+
+# include_attachments: download and save attachments when archiving
+include_attachments: true
+
+# ─── Rate Limiting ──────────────────────────────────────────────────
+rate_limit:
+  # discord_delay_ms: delay between Discord API requests (milliseconds)
+  # Lower values are faster but risk hitting rate limits
+  discord_delay_ms: 500
+
+  # telegram_delay_ms: delay between Telegram API requests (milliseconds)
+  telegram_delay_ms: 300
+
+# ─── Default Filters ────────────────────────────────────────────────
+# These defaults apply when the corresponding flags are not specified
+defaults:
+  # exclude_pinned: skip pinned messages by default
+  exclude_pinned: false
+
+  # before: only process messages before this date (YYYY-MM-DD)
+  # before: ""
+
+  # after: only process messages after this date (YYYY-MM-DD)
+  # after: ""
