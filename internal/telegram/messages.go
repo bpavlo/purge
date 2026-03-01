@@ -10,20 +10,73 @@ import (
 const maxDeleteBatch = 100
 
 // GetDialogs fetches all accessible dialogs and returns them as Chat values.
+// It paginates through results until all dialogs are retrieved.
 func (c *Client) GetDialogs(ctx context.Context) ([]Chat, error) {
-	if err := c.rateLimiter.Wait(ctx); err != nil {
-		return nil, err
+	const pageLimit = 100
+
+	var allChats []Chat
+	offsetDate := 0
+	offsetID := 0
+	var offsetPeer tg.InputPeerClass = &tg.InputPeerEmpty{}
+
+	for {
+		if err := c.rateLimiter.Wait(ctx); err != nil {
+			return nil, err
+		}
+
+		result, err := c.api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
+			OffsetDate: offsetDate,
+			OffsetID:   offsetID,
+			OffsetPeer: offsetPeer,
+			Limit:      pageLimit,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("get dialogs: %w", err)
+		}
+
+		chats, err := c.extractDialogChats(result)
+		if err != nil {
+			return nil, err
+		}
+		allChats = append(allChats, chats...)
+
+		// MessagesDialogs means the server returned the complete list.
+		if _, ok := result.(*tg.MessagesDialogs); ok {
+			break
+		}
+
+		// No more results in this page — we've fetched everything.
+		slice, ok := result.(*tg.MessagesDialogsSlice)
+		if !ok || len(slice.Dialogs) == 0 {
+			break
+		}
+
+		// All dialogs fetched.
+		if len(allChats) >= slice.Count {
+			break
+		}
+
+		// Advance the offset using the last message and dialog in the page.
+		lastDialog := slice.Dialogs[len(slice.Dialogs)-1]
+		d, ok := lastDialog.(*tg.Dialog)
+		if !ok {
+			break
+		}
+
+		// Find the date from the last message in the page.
+		topMsgID := d.GetTopMessage()
+		offsetID = topMsgID
+		for _, m := range slice.Messages {
+			if msg, ok := m.(*tg.Message); ok && msg.ID == topMsgID {
+				offsetDate = msg.Date
+				break
+			}
+		}
+
+		offsetPeer = dialogPeerToInputPeer(d.Peer, slice.Users, slice.Chats)
 	}
 
-	result, err := c.api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
-		OffsetPeer: &tg.InputPeerEmpty{},
-		Limit:      0, // 0 means all
-	})
-	if err != nil {
-		return nil, fmt.Errorf("get dialogs: %w", err)
-	}
-
-	return c.extractDialogChats(result)
+	return allChats, nil
 }
 
 // extractDialogChats builds Chat slices from dialog results.
@@ -79,6 +132,28 @@ func (c *Client) extractDialogChats(result tg.MessagesDialogsClass) ([]Chat, err
 	}
 
 	return chats, nil
+}
+
+// dialogPeerToInputPeer converts a dialog's PeerClass to an InputPeerClass
+// using the user/chat entity lists from the dialogs response.
+func dialogPeerToInputPeer(peer tg.PeerClass, users []tg.UserClass, chats []tg.ChatClass) tg.InputPeerClass {
+	switch p := peer.(type) {
+	case *tg.PeerUser:
+		for _, u := range users {
+			if user, ok := u.(*tg.User); ok && user.ID == p.UserID {
+				return &tg.InputPeerUser{UserID: user.ID, AccessHash: user.AccessHash}
+			}
+		}
+	case *tg.PeerChat:
+		return &tg.InputPeerChat{ChatID: p.ChatID}
+	case *tg.PeerChannel:
+		for _, ch := range chats {
+			if channel, ok := ch.(*tg.Channel); ok && channel.ID == p.ChannelID {
+				return &tg.InputPeerChannel{ChannelID: channel.ID, AccessHash: channel.AccessHash}
+			}
+		}
+	}
+	return &tg.InputPeerEmpty{}
 }
 
 // GetMessages searches for messages in a chat matching the given options.
