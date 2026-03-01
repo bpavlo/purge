@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -57,6 +58,13 @@ func (e *ErrNotFound) Error() string {
 	return fmt.Sprintf("discord not found: %s", e.Message)
 }
 
+// RateLimitEvent is emitted when the client encounters a 429 rate limit.
+type RateLimitEvent struct {
+	Method     string
+	Path       string
+	RetryAfter time.Duration
+}
+
 // Client is a Discord API client that uses raw HTTP with user token authentication.
 type Client struct {
 	token       string
@@ -64,6 +72,7 @@ type Client struct {
 	rateLimiter *ratelimit.RateLimiter
 	baseURL     string
 	selfUser    *User // cached after ValidateToken
+	rateLimitCh chan RateLimitEvent
 }
 
 // NewClient creates a new Discord API client.
@@ -74,6 +83,12 @@ func NewClient(token string, rl *ratelimit.RateLimiter) *Client {
 		rateLimiter: rl,
 		baseURL:     DefaultBaseURL,
 	}
+}
+
+// SetRateLimitChannel sets a channel that receives rate limit events.
+// The channel should be buffered to avoid blocking the request goroutine.
+func (c *Client) SetRateLimitChannel(ch chan RateLimitEvent) {
+	c.rateLimitCh = ch
 }
 
 // SetBaseURL overrides the default API base URL (useful for testing).
@@ -137,7 +152,27 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body io.Rea
 			retryAfter := parseRetryAfter(resp)
 			resp.Body.Close()
 
+			slog.Debug("rate limited by Discord API",
+				"method", method,
+				"path", path,
+				"retry_after", retryAfter,
+				"attempt", attempt,
+			)
+
 			c.rateLimiter.HandleRateLimit(retryAfter)
+
+			// Notify listener about the rate limit event.
+			if c.rateLimitCh != nil {
+				select {
+				case c.rateLimitCh <- RateLimitEvent{
+					Method:     method,
+					Path:       path,
+					RetryAfter: retryAfter,
+				}:
+				default:
+					// Channel full, skip notification.
+				}
+			}
 
 			if attempt == maxRetries {
 				return nil, &ErrRateLimit{RetryAfter: retryAfter}

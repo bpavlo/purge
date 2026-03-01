@@ -17,7 +17,8 @@ log_level: info
 # ─── Discord Settings ───────────────────────────────────────────────
 discord:
   # token: your Discord user token (keep this secret!)
-  # Alternatively set PURGE_DISCORD_TOKEN env var
+  # Alternatively set PURGE_DISCORD_TOKEN env var or run 'purge auth discord'
+  # Precedence: config file > env var > token file
   token: ""
 
 # ─── Telegram Settings ──────────────────────────────────────────────
@@ -44,17 +45,41 @@ archive_format: json
 include_attachments: true
 
 # ─── Rate Limiting ──────────────────────────────────────────────────
-rate_limit:
-  # discord_delay_ms: delay between Discord API requests (milliseconds)
-  # Lower values are faster but risk hitting rate limits
-  discord_delay_ms: 500
+rate_limits:
+  discord:
+    # delay_ms: delay between Discord API requests (milliseconds)
+    # Lower values are faster but risk hitting rate limits (SPEC SS7 default: 1000)
+    delay_ms: 1000
 
-  # telegram_delay_ms: delay between Telegram API requests (milliseconds)
-  telegram_delay_ms: 300
+    # max_retries: maximum retry count on rate limit / transient errors
+    max_retries: 5
 
-# ─── Default Filters ────────────────────────────────────────────────
+    # backoff_multiplier: exponential backoff factor for retries
+    backoff_multiplier: 2.0
+
+  telegram:
+    # delay_ms: delay between Telegram API requests (milliseconds)
+    # SPEC SS7 default: 500
+    delay_ms: 500
+
+    # batch_size: number of messages per batch delete request
+    batch_size: 100
+
+    # max_retries: maximum retry count on rate limit / transient errors
+    max_retries: 5
+
+    # backoff_multiplier: exponential backoff factor for retries
+    backoff_multiplier: 2.0
+
+# ─── Default Behavior ───────────────────────────────────────────────
 # These defaults apply when the corresponding flags are not specified
 defaults:
+  # dry_run: preview only, don't actually delete (same as --dry-run flag)
+  dry_run: false
+
+  # archive_before_delete: automatically archive messages before deleting
+  archive_before_delete: false
+
   # exclude_pinned: skip pinned messages by default
   exclude_pinned: false
 

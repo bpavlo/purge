@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/pavlo/purge/internal/filter"
+	"github.com/pavlo/purge/internal/ratelimit"
 	"github.com/pavlo/purge/internal/types"
 	"github.com/pavlo/purge/internal/ui"
 )
@@ -43,8 +44,22 @@ func discordTokenPath() (string, error) {
 	return filepath.Join(dir, discordTokenFile), nil
 }
 
-// loadDiscordToken reads the Discord token from disk.
+// loadDiscordToken reads the Discord token with the following precedence:
+//  1. Config file: discord.token in purge.yaml
+//  2. Environment variable: PURGE_DISCORD_TOKEN
+//  3. Token file: ~/.config/purge/discord_token
 func loadDiscordToken() (string, error) {
+	// 1. Check config file (viper reads from purge.yaml)
+	if token := viper.GetString("discord.token"); token != "" {
+		return token, nil
+	}
+
+	// 2. Check environment variable
+	if token := os.Getenv("PURGE_DISCORD_TOKEN"); token != "" {
+		return token, nil
+	}
+
+	// 3. Fall back to token file
 	path, err := discordTokenPath()
 	if err != nil {
 		return "", err
@@ -52,15 +67,48 @@ func loadDiscordToken() (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("Discord token not found. Run 'purge auth discord' first")
+			return "", fmt.Errorf("Discord token not found. Set discord.token in config, PURGE_DISCORD_TOKEN env var, or run 'purge auth discord'")
 		}
 		return "", fmt.Errorf("reading Discord token: %w", err)
 	}
 	token := strings.TrimSpace(string(data))
 	if token == "" {
-		return "", fmt.Errorf("Discord token file is empty. Run 'purge auth discord' first")
+		return "", fmt.Errorf("Discord token file is empty. Set discord.token in config, PURGE_DISCORD_TOKEN env var, or run 'purge auth discord'")
 	}
 	return token, nil
+}
+
+// discordRateLimitConfig reads Discord rate limit settings from viper with defaults.
+func discordRateLimitConfig() ratelimit.Config {
+	cfg := ratelimit.DefaultConfig()
+	if v := viper.GetInt("rate_limits.discord.delay_ms"); v > 0 {
+		cfg.DelayMs = v
+	}
+	if v := viper.GetInt("rate_limits.discord.max_retries"); v > 0 {
+		cfg.MaxRetries = v
+	}
+	if v := viper.GetFloat64("rate_limits.discord.backoff_multiplier"); v > 0 {
+		cfg.BackoffMultiplier = v
+	}
+	return cfg
+}
+
+// telegramRateLimitConfig reads Telegram rate limit settings from viper with defaults.
+func telegramRateLimitConfig() ratelimit.Config {
+	cfg := ratelimit.DefaultTelegramConfig()
+	if v := viper.GetInt("rate_limits.telegram.delay_ms"); v > 0 {
+		cfg.DelayMs = v
+	}
+	if v := viper.GetInt("rate_limits.telegram.batch_size"); v > 0 {
+		cfg.BatchSize = v
+	}
+	if v := viper.GetInt("rate_limits.telegram.max_retries"); v > 0 {
+		cfg.MaxRetries = v
+	}
+	if v := viper.GetFloat64("rate_limits.telegram.backoff_multiplier"); v > 0 {
+		cfg.BackoffMultiplier = v
+	}
+	return cfg
 }
 
 // saveDiscordToken writes the Discord token to disk with 0600 permissions.

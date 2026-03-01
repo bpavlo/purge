@@ -51,7 +51,7 @@ func runDiscordArchive(fo FilterOptions, output string) error {
 		return err
 	}
 
-	rl := ratelimit.New(ratelimit.DefaultConfig())
+	rl := ratelimit.New(discordRateLimitConfig())
 	client := discord.NewClient(token, rl)
 
 	ctx := context.Background()
@@ -177,7 +177,7 @@ func runTelegramArchive(fo FilterOptions, output string) error {
 		return err
 	}
 
-	rl := ratelimit.New(ratelimit.DefaultConfig())
+	rl := ratelimit.New(telegramRateLimitConfig())
 	tgClient := telegram.NewClient(apiID, apiHash, sessionPath, rl)
 
 	ctx := context.Background()

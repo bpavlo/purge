@@ -31,8 +31,24 @@ By default, a confirmation prompt is shown before deletion.`,
 		fo := ParseFilterOptions(cmd)
 
 		yes, _ := cmd.Flags().GetBool("yes")
+
+		// Use config defaults when CLI flags aren't explicitly set.
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if !cmd.Flags().Changed("dry-run") {
+			dryRun = viper.GetBool("defaults.dry_run")
+		}
+
 		doArchive, _ := cmd.Flags().GetBool("archive")
+		if !cmd.Flags().Changed("archive") {
+			doArchive = viper.GetBool("defaults.archive_before_delete")
+		}
+
+		// Apply defaults.exclude_pinned from config if flag not explicitly set.
+		if !cmd.Flags().Changed("exclude-pinned") {
+			if viper.GetBool("defaults.exclude_pinned") {
+				fo.ExcludePinned = true
+			}
+		}
 
 		switch platform {
 		case "discord":
@@ -56,7 +72,7 @@ func runDiscordDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 		return err
 	}
 
-	rl := ratelimit.New(ratelimit.DefaultConfig())
+	rl := ratelimit.New(discordRateLimitConfig())
 	client := discord.NewClient(token, rl)
 
 	ctx := context.Background()
@@ -218,9 +234,20 @@ func runDiscordDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 	mode := outputMode()
 	bar := ui.NewProgressBar(totalCount, "Deleting messages", mode)
 
+	// Set up rate limit event listener for progress bar updates.
+	rateLimitCh := make(chan discord.RateLimitEvent, 1)
+	client.SetRateLimitChannel(rateLimitCh)
+
 	deleted, failed, skipped := 0, 0, 0
 
 	for _, msg := range allMsgs {
+		// Check for any pending rate limit notification.
+		select {
+		case evt := <-rateLimitCh:
+			bar.SetStatus(fmt.Sprintf("Rate limited — pausing %.1fs...", evt.RetryAfter.Seconds()))
+		default:
+		}
+
 		err := client.DeleteMessage(ctx, msg.channelID, msg.messageID)
 		if err != nil {
 			failed++
@@ -231,6 +258,8 @@ func runDiscordDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 			deleted++
 		}
 
+		// Restore normal description after successful request.
+		bar.SetStatus("Deleting messages")
 		bar.Increment()
 
 		// Save checkpoint periodically.
@@ -281,7 +310,7 @@ func runTelegramDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 		return err
 	}
 
-	rl := ratelimit.New(ratelimit.DefaultConfig())
+	rl := ratelimit.New(telegramRateLimitConfig())
 	tgClient := telegram.NewClient(apiID, apiHash, sessionPath, rl)
 
 	ctx := context.Background()

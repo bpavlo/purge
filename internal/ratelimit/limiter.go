@@ -3,6 +3,7 @@ package ratelimit
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -29,10 +30,20 @@ type Config struct {
 	BatchSize         int     // for Telegram batch deletes
 }
 
-// DefaultConfig returns sensible defaults.
+// DefaultConfig returns sensible defaults for Discord (SPEC SS7).
 func DefaultConfig() Config {
 	return Config{
-		DelayMs:           50,
+		DelayMs:           1000,
+		MaxRetries:        5,
+		BackoffMultiplier: 2.0,
+		BatchSize:         100,
+	}
+}
+
+// DefaultTelegramConfig returns sensible defaults for Telegram (SPEC SS7).
+func DefaultTelegramConfig() Config {
+	return Config{
+		DelayMs:           500,
 		MaxRetries:        5,
 		BackoffMultiplier: 2.0,
 		BatchSize:         100,
@@ -42,7 +53,7 @@ func DefaultConfig() Config {
 // New creates a new RateLimiter with the given config.
 func New(cfg Config) *RateLimiter {
 	if cfg.DelayMs <= 0 {
-		cfg.DelayMs = 50
+		cfg.DelayMs = 1000
 	}
 	if cfg.MaxRetries <= 0 {
 		cfg.MaxRetries = 5
@@ -105,6 +116,7 @@ func (rl *RateLimiter) WaitRoute(ctx context.Context, route string) error {
 // HandleRateLimit is called when the API returns a 429/FLOOD_WAIT response.
 // It pauses all requests for the given duration.
 func (rl *RateLimiter) HandleRateLimit(retryAfter time.Duration) {
+	slog.Debug("rate limit triggered, pausing requests", "retry_after", retryAfter)
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 	rl.paused = time.Now().Add(retryAfter)

@@ -73,7 +73,7 @@ func runAuthDiscord() error {
 	}
 
 	// Validate the token by calling the Discord API.
-	rl := ratelimit.New(ratelimit.DefaultConfig())
+	rl := ratelimit.New(discordRateLimitConfig())
 	client := discord.NewClient(token, rl)
 
 	ctx := context.Background()
@@ -143,7 +143,7 @@ func runAuthTelegram() error {
 		return err
 	}
 
-	rl := ratelimit.New(ratelimit.DefaultConfig())
+	rl := ratelimit.New(telegramRateLimitConfig())
 	client := telegram.NewClient(apiID, apiHash, sessionPath, rl)
 
 	ctx := context.Background()

@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -74,4 +76,24 @@ func initConfig() {
 			fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
 		}
 	}
+
+	// Configure slog level from config/flag.
+	configureSlogLevel()
+}
+
+// configureSlogLevel sets the global slog level based on the log_level config value.
+func configureSlogLevel() {
+	var level slog.Level
+	switch strings.ToLower(viper.GetString("log_level")) {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn", "warning":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
+	}
+	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+	slog.SetDefault(slog.New(handler))
 }
