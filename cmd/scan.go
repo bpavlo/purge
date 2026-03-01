@@ -428,7 +428,7 @@ func loadTelegramConfig() (int, string, error) {
 	apiHash := viper.GetString("telegram.api_hash")
 
 	if apiIDStr == "" || apiHash == "" {
-		return 0, "", fmt.Errorf("Telegram API credentials not configured. Set telegram.api_id and telegram.api_hash in config or run 'purge auth telegram'")
+		return 0, "", fmt.Errorf("telegram API credentials not configured: set telegram.api_id and telegram.api_hash in config or run 'purge auth telegram'")
 	}
 
 	apiID, err := strconv.Atoi(apiIDStr)

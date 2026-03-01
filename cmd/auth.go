@@ -151,7 +151,7 @@ func runAuthTelegram() error {
 		return client.Authenticate(ctx, phone, "")
 	})
 	if err != nil {
-		return fmt.Errorf("Telegram authentication failed: %w", err)
+		return fmt.Errorf("telegram authentication failed: %w", err)
 	}
 
 	// Persist API credentials to config file so subsequent commands work.

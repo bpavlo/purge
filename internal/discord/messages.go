@@ -16,7 +16,7 @@ func (c *Client) GetGuilds(ctx context.Context) ([]Guild, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fetching guilds: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var guilds []Guild
 	if err := json.NewDecoder(resp.Body).Decode(&guilds); err != nil {
@@ -49,7 +49,7 @@ func (c *Client) GetChannel(ctx context.Context, channelID string) (*Channel, er
 	if err != nil {
 		return nil, fmt.Errorf("fetching channel %s: %w", channelID, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var ch Channel
 	if err := json.NewDecoder(resp.Body).Decode(&ch); err != nil {
@@ -66,7 +66,7 @@ func (c *Client) GetChannels(ctx context.Context, guildID string) ([]Channel, er
 	if err != nil {
 		return nil, fmt.Errorf("fetching channels for guild %s: %w", guildID, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var channels []Channel
 	if err := json.NewDecoder(resp.Body).Decode(&channels); err != nil {
@@ -100,7 +100,7 @@ func (c *Client) GetDMChannels(ctx context.Context) ([]Channel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fetching DM channels: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var channels []Channel
 	if err := json.NewDecoder(resp.Body).Decode(&channels); err != nil {
@@ -143,7 +143,7 @@ func (c *Client) SearchGuildMessages(ctx context.Context, guildID string, opts S
 	if err != nil {
 		return nil, fmt.Errorf("searching guild messages: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var searchResp SearchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
@@ -185,7 +185,7 @@ func (c *Client) SearchChannelMessages(ctx context.Context, channelID string, op
 	if err != nil {
 		return nil, fmt.Errorf("searching channel messages: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var searchResp SearchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
@@ -214,7 +214,7 @@ func (c *Client) GetChannelMessages(ctx context.Context, channelID string, befor
 	if err != nil {
 		return nil, fmt.Errorf("fetching channel messages: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var messages []Message
 	if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {

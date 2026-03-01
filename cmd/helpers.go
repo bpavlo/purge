@@ -70,13 +70,13 @@ func loadDiscordToken() (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("Discord token not found. Set discord.token in config, PURGE_DISCORD_TOKEN env var, or run 'purge auth discord'")
+			return "", fmt.Errorf("discord token not found: set discord.token in config, PURGE_DISCORD_TOKEN env var, or run 'purge auth discord'")
 		}
 		return "", fmt.Errorf("reading Discord token: %w", err)
 	}
 	token := strings.TrimSpace(string(data))
 	if token == "" {
-		return "", fmt.Errorf("Discord token file is empty. Set discord.token in config, PURGE_DISCORD_TOKEN env var, or run 'purge auth discord'")
+		return "", fmt.Errorf("discord token file is empty: set discord.token in config, PURGE_DISCORD_TOKEN env var, or run 'purge auth discord'")
 	}
 	return token, nil
 }

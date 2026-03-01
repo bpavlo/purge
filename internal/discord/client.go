@@ -108,7 +108,7 @@ func (c *Client) ValidateToken(ctx context.Context) (*User, error) {
 	if err != nil {
 		return nil, fmt.Errorf("validating token: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var user User
 	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
@@ -150,7 +150,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body io.Rea
 
 		case http.StatusTooManyRequests:
 			retryAfter := parseRetryAfter(resp)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			slog.Debug("rate limited by Discord API",
 				"method", method,
@@ -187,27 +187,27 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body io.Rea
 			}
 
 		case http.StatusUnauthorized:
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return nil, &ErrAuth{
 				StatusCode: http.StatusUnauthorized,
 				Message:    "invalid or expired token",
 			}
 
 		case http.StatusForbidden:
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return nil, &ErrForbidden{
 				Message: fmt.Sprintf("%s %s: access denied", method, path),
 			}
 
 		case http.StatusNotFound:
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return nil, &ErrNotFound{
 				Message: fmt.Sprintf("%s %s: not found", method, path),
 			}
 
 		default:
 			bodyBytes, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return nil, fmt.Errorf("unexpected status %d for %s %s: %s",
 				resp.StatusCode, method, path, string(bodyBytes))
 		}

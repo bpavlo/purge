@@ -132,7 +132,7 @@ func (p *ProgressBar) SetStatus(msg string) {
 func (p *ProgressBar) Finish() {
 	_ = p.bar.Finish()
 	if p.mode != ModeQuiet && p.mode != ModeJSON {
-		fmt.Fprintln(p.writer)
+		_, _ = fmt.Fprintln(p.writer)
 	}
 }
 
@@ -248,18 +248,18 @@ func ConfirmDeletion(count int, platform string, target string, filters string, 
 		filters = "none (all messages)"
 	}
 
-	fmt.Fprintln(writer)
-	fmt.Fprintln(writer, styles.Warning.Render(fmt.Sprintf("  WARNING: You are about to delete %d messages.", count)))
-	fmt.Fprintf(writer, "  Platform:  %s\n", platform)
+	_, _ = fmt.Fprintln(writer)
+	_, _ = fmt.Fprintln(writer, styles.Warning.Render(fmt.Sprintf("  WARNING: You are about to delete %d messages.", count)))
+	_, _ = fmt.Fprintf(writer, "  Platform:  %s\n", platform)
 	if target != "" {
-		fmt.Fprintf(writer, "  Target:    %s\n", target)
+		_, _ = fmt.Fprintf(writer, "  Target:    %s\n", target)
 	}
-	fmt.Fprintf(writer, "  Filters:   %s\n", filters)
-	fmt.Fprintf(writer, "  Archive:   %s\n", archiveStatus)
-	fmt.Fprintln(writer)
-	fmt.Fprintln(writer, styles.Warning.Render("  This action is IRREVERSIBLE."))
-	fmt.Fprintln(writer)
-	fmt.Fprintf(writer, "  Type 'delete %d' to confirm: ", count)
+	_, _ = fmt.Fprintf(writer, "  Filters:   %s\n", filters)
+	_, _ = fmt.Fprintf(writer, "  Archive:   %s\n", archiveStatus)
+	_, _ = fmt.Fprintln(writer)
+	_, _ = fmt.Fprintln(writer, styles.Warning.Render("  This action is IRREVERSIBLE."))
+	_, _ = fmt.Fprintln(writer)
+	_, _ = fmt.Fprintf(writer, "  Type 'delete %d' to confirm: ", count)
 
 	scanner := bufio.NewScanner(reader)
 	if !scanner.Scan() {
