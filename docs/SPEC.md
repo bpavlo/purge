@@ -1,3 +1,5 @@
+> **Note:** This is the original design document. For usage, see [README.md](../README.md).
+
 # purge — Mass Delete Messages from Discord & Telegram
 
 > A CLI tool to scan, filter, archive, and bulk-delete your messages across Discord and Telegram.
