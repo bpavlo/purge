@@ -150,6 +150,7 @@ func runDiscordDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 	// Determine channels (same logic as scan).
 	var channels []discord.Channel
 	var guildID, guildName string
+	useGuildSearch := false
 
 	switch {
 	case fo.DMs:
@@ -182,10 +183,8 @@ func runDiscordDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 				return fmt.Errorf("channel %q not found in server %q", fo.Channel, fo.Server)
 			}
 		} else {
-			channels, err = client.GetTextChannels(ctx, guild.ID)
-			if err != nil {
-				return err
-			}
+			// Use guild-wide search instead of iterating channels.
+			useGuildSearch = true
 		}
 
 	case fo.Channel != "":
@@ -219,38 +218,48 @@ func runDiscordDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 
 	var allMsgs []discordMsg
 
-	for _, ch := range channels {
-		chName := ch.Name
-		if chName == "" {
-			chName = ch.DMName()
-		}
-
-		var common []*types.Message
-		if guildID != "" {
-			common, err = searchDiscordChannel(ctx, client, user.ID, ch.ID, guildID, guildName, chName, filterOpts)
-		} else {
-			common, err = fetchDiscordDMChannel(ctx, client, user.ID, ch, guildID, guildName, filterOpts)
-		}
+	if useGuildSearch {
+		// Guild-wide search: single query paginated across all channels.
+		guildMsgs, err := searchGuildAllMessages(ctx, client, user.ID, guildID, guildName, filterOpts)
 		if err != nil {
-			// Check for permission errors — skip channel with warning.
-			var forbiddenErr *discord.ErrForbidden
-			if errors.As(err, &forbiddenErr) {
-				fmt.Fprintf(os.Stderr, "Warning: skipping channel %s: insufficient permissions\n", chName)
-				continue
-			}
-			if viper.GetBool("verbose") {
-				fmt.Fprintf(os.Stderr, "Warning: error scanning channel %s: %v\n", chName, err)
-			}
-			continue
+			return err
 		}
-
-		for _, msg := range common {
+		for _, msg := range guildMsgs {
 			allMsgs = append(allMsgs, discordMsg{
-				channelID:   ch.ID,
-				channelName: chName,
+				channelID:   msg.ChannelID,
+				channelName: msg.ChannelName,
 				messageID:   msg.ID,
 				common:      msg,
 			})
+		}
+	} else {
+		for _, ch := range channels {
+			chName := ch.Name
+			if chName == "" {
+				chName = ch.DMName()
+			}
+
+			var common []*types.Message
+			if guildID != "" {
+				common, err = searchDiscordChannel(ctx, client, user.ID, ch.ID, guildID, guildName, chName, filterOpts)
+			} else {
+				common, err = fetchDiscordDMChannel(ctx, client, user.ID, ch, guildID, guildName, filterOpts)
+			}
+			if err != nil {
+				if viper.GetBool("verbose") {
+					fmt.Fprintf(os.Stderr, "Warning: error scanning channel %s: %v\n", chName, err)
+				}
+				continue
+			}
+
+			for _, msg := range common {
+				allMsgs = append(allMsgs, discordMsg{
+					channelID:   ch.ID,
+					channelName: chName,
+					messageID:   msg.ID,
+					common:      msg,
+				})
+			}
 		}
 	}
 

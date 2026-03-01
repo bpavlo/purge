@@ -63,6 +63,7 @@ func runDiscordArchive(fo FilterOptions, output string) error {
 	// Determine channels (same logic as scan).
 	var channels []discord.Channel
 	var guildID, guildName string
+	useGuildSearch := false
 
 	switch {
 	case fo.DMs:
@@ -95,10 +96,8 @@ func runDiscordArchive(fo FilterOptions, output string) error {
 				return fmt.Errorf("channel %q not found in server %q", fo.Channel, fo.Server)
 			}
 		} else {
-			channels, err = client.GetTextChannels(ctx, guild.ID)
-			if err != nil {
-				return err
-			}
+			// Use guild-wide search instead of iterating channels.
+			useGuildSearch = true
 		}
 
 	case fo.Channel != "":
@@ -112,44 +111,79 @@ func runDiscordArchive(fo FilterOptions, output string) error {
 	archiver := archive.NewArchiver(dir)
 	totalArchived := 0
 
-	for _, ch := range channels {
-		chName := ch.Name
-		if chName == "" {
-			chName = ch.DMName()
+	if useGuildSearch {
+		// Guild-wide search: single query paginated across all channels.
+		allMsgs, err := searchGuildAllMessages(ctx, client, user.ID, guildID, guildName, filterOpts)
+		if err != nil {
+			return err
 		}
 
-		var common []*types.Message
-		if guildID != "" {
-			common, err = searchDiscordChannel(ctx, client, user.ID, ch.ID, guildID, guildName, chName, filterOpts)
-		} else {
-			common, err = fetchDiscordDMChannel(ctx, client, user.ID, ch, guildID, guildName, filterOpts)
-		}
-		if err != nil {
-			if viper.GetBool("verbose") {
-				fmt.Fprintf(os.Stderr, "Warning: error scanning channel %s: %v\n", chName, err)
+		// Group by channel for per-channel archive files.
+		channelMsgs := make(map[string][]types.Message)
+		channelNames := make(map[string]string)
+		for _, msg := range allMsgs {
+			channelMsgs[msg.ChannelID] = append(channelMsgs[msg.ChannelID], *msg)
+			if channelNames[msg.ChannelID] == "" {
+				channelNames[msg.ChannelID] = msg.ChannelName
 			}
-			continue
 		}
 
-		if len(common) == 0 {
-			continue
+		for chID, msgs := range channelMsgs {
+			chName := channelNames[chID]
+			if chName == "" {
+				chName = chID
+			}
+			err := archiver.Archive(msgs, archive.ArchiveMetadata{
+				Platform:    "discord",
+				ChannelID:   chID,
+				ChannelName: chName,
+				ServerName:  guildName,
+			})
+			if err != nil {
+				return fmt.Errorf("archiving messages for channel %s: %w", chName, err)
+			}
+			totalArchived += len(msgs)
 		}
+	} else {
+		for _, ch := range channels {
+			chName := ch.Name
+			if chName == "" {
+				chName = ch.DMName()
+			}
 
-		msgs := make([]types.Message, len(common))
-		for i, m := range common {
-			msgs[i] = *m
-		}
+			var common []*types.Message
+			if guildID != "" {
+				common, err = searchDiscordChannel(ctx, client, user.ID, ch.ID, guildID, guildName, chName, filterOpts)
+			} else {
+				common, err = fetchDiscordDMChannel(ctx, client, user.ID, ch, guildID, guildName, filterOpts)
+			}
+			if err != nil {
+				if viper.GetBool("verbose") {
+					fmt.Fprintf(os.Stderr, "Warning: error scanning channel %s: %v\n", chName, err)
+				}
+				continue
+			}
 
-		err = archiver.Archive(msgs, archive.ArchiveMetadata{
-			Platform:    "discord",
-			ChannelID:   ch.ID,
-			ChannelName: chName,
-			ServerName:  guildName,
-		})
-		if err != nil {
-			return fmt.Errorf("archiving messages for channel %s: %w", chName, err)
+			if len(common) == 0 {
+				continue
+			}
+
+			msgs := make([]types.Message, len(common))
+			for i, m := range common {
+				msgs[i] = *m
+			}
+
+			err = archiver.Archive(msgs, archive.ArchiveMetadata{
+				Platform:    "discord",
+				ChannelID:   ch.ID,
+				ChannelName: chName,
+				ServerName:  guildName,
+			})
+			if err != nil {
+				return fmt.Errorf("archiving messages for channel %s: %w", chName, err)
+			}
+			totalArchived += len(msgs)
 		}
-		totalArchived += len(msgs)
 	}
 
 	if totalArchived == 0 {

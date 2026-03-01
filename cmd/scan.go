@@ -67,6 +67,7 @@ func runDiscordScan(fo FilterOptions) error {
 	// Determine which channels to scan.
 	var channels []discord.Channel
 	var guildID, guildName string
+	useGuildSearch := false
 
 	switch {
 	case fo.DMs:
@@ -100,11 +101,8 @@ func runDiscordScan(fo FilterOptions) error {
 				return fmt.Errorf("channel %q not found in server %q", fo.Channel, fo.Server)
 			}
 		} else {
-			// Scan all text channels in server.
-			channels, err = client.GetTextChannels(ctx, guild.ID)
-			if err != nil {
-				return err
-			}
+			// Use guild-wide search instead of iterating channels.
+			useGuildSearch = true
 		}
 
 	case fo.Channel != "":
@@ -115,56 +113,119 @@ func runDiscordScan(fo FilterOptions) error {
 		return fmt.Errorf("specify --server, --channel, or --dms to target messages")
 	}
 
-	// Scan each channel.
 	var results []types.ScanResult
 
-	for _, ch := range channels {
-		chName := ch.Name
-		if chName == "" {
-			chName = ch.DMName()
-		}
-
-		var allCommon []*types.Message
-
-		if guildID != "" {
-			// Use guild search for server channels.
-			allCommon, err = searchDiscordChannel(ctx, client, user.ID, ch.ID, guildID, guildName, chName, filterOpts)
-		} else {
-			// Use channel messages for DMs or standalone channels.
-			allCommon, err = fetchDiscordDMChannel(ctx, client, user.ID, ch, guildID, guildName, filterOpts)
-		}
+	if useGuildSearch {
+		// Guild-wide search: single query paginated across all channels.
+		allMsgs, err := searchGuildAllMessages(ctx, client, user.ID, guildID, guildName, filterOpts)
 		if err != nil {
-			// Check for permission errors — skip channel with warning.
-			var forbiddenErr *discord.ErrForbidden
-			if errors.As(err, &forbiddenErr) {
-				fmt.Fprintf(os.Stderr, "Warning: skipping #%s: insufficient permissions\n", chName)
+			return err
+		}
+		results = groupMessagesByChannel(allMsgs, guildID)
+	} else {
+		// Per-channel iteration (DMs, single channel, or standalone channel).
+		for _, ch := range channels {
+			chName := ch.Name
+			if chName == "" {
+				chName = ch.DMName()
+			}
+
+			var allCommon []*types.Message
+
+			if guildID != "" {
+				// Use channel search for single-channel server search.
+				allCommon, err = searchDiscordChannel(ctx, client, user.ID, ch.ID, guildID, guildName, chName, filterOpts)
+			} else {
+				// Use channel messages for DMs or standalone channels.
+				allCommon, err = fetchDiscordDMChannel(ctx, client, user.ID, ch, guildID, guildName, filterOpts)
+			}
+			if err != nil {
+				// Check for permission errors — skip channel with warning.
+				var forbiddenErr *discord.ErrForbidden
+				if errors.As(err, &forbiddenErr) {
+					fmt.Fprintf(os.Stderr, "Warning: skipping #%s: insufficient permissions\n", chName)
+				} else if viper.GetBool("verbose") {
+					fmt.Fprintf(os.Stderr, "Warning: error scanning channel %s: %v\n", chName, err)
+				}
 				continue
 			}
-			if viper.GetBool("verbose") {
-				fmt.Fprintf(os.Stderr, "Warning: error scanning channel %s: %v\n", chName, err)
+
+			if len(allCommon) == 0 {
+				continue
 			}
-			continue
-		}
 
-		if len(allCommon) == 0 {
-			continue
+			typeCh := types.Channel{
+				ID:       ch.ID,
+				Name:     chName,
+				Platform: "discord",
+				ServerID: guildID,
+			}
+			results = append(results, buildScanResult(typeCh, allCommon))
 		}
-
-		typeCh := types.Channel{
-			ID:       ch.ID,
-			Name:     chName,
-			Platform: "discord",
-			ServerID: guildID,
-		}
-		results = append(results, buildScanResult(typeCh, allCommon))
 	}
 
 	return printScanResults(results)
 }
 
+// searchGuildAllMessages searches an entire guild for the user's messages using the
+// guild-wide search endpoint. It paginates (offset += 25) and deduplicates by message ID.
+// It fetches channel names once via GetChannels to build an ID→name map.
+func searchGuildAllMessages(ctx context.Context, client *discord.Client, userID, guildID, guildName string, filterOpts filter.Options) ([]*types.Message, error) {
+	// Build channel ID → name map.
+	channelNameMap, err := buildChannelNameMap(ctx, client, guildID)
+	if err != nil {
+		if viper.GetBool("verbose") {
+			fmt.Fprintf(os.Stderr, "Warning: could not fetch channel names: %v\n", err)
+		}
+		channelNameMap = make(map[string]string)
+	}
+
+	var allCommon []*types.Message
+	seen := make(map[string]bool)
+	offset := 0
+
+	for {
+		resp, err := client.SearchGuildMessages(ctx, guildID, discord.SearchOptions{
+			Offset: offset,
+		})
+		if err != nil {
+			return allCommon, err
+		}
+
+		msgs := resp.ExtractMessages(userID)
+		if len(msgs) == 0 {
+			break
+		}
+
+		for i := range msgs {
+			if seen[msgs[i].ID] {
+				continue
+			}
+			seen[msgs[i].ID] = true
+
+			chName := channelNameMap[msgs[i].ChannelID]
+			if chName == "" {
+				chName = msgs[i].ChannelID
+			}
+			common := msgs[i].ToCommon(chName, guildID, guildName)
+			if filter.Match(common, filterOpts) {
+				allCommon = append(allCommon, common)
+			}
+		}
+
+		offset += 25
+		if offset >= resp.TotalResults {
+			break
+		}
+	}
+
+	return allCommon, nil
+}
+
 // searchDiscordChannel searches a guild channel using the search API and paginates all results.
 func searchDiscordChannel(ctx context.Context, client *discord.Client, userID, channelID, guildID, guildName, channelName string, filterOpts filter.Options) ([]*types.Message, error) {
 	var allCommon []*types.Message
+	seen := make(map[string]bool)
 	offset := 0
 
 	for {
@@ -181,13 +242,18 @@ func searchDiscordChannel(ctx context.Context, client *discord.Client, userID, c
 		}
 
 		for i := range msgs {
+			if seen[msgs[i].ID] {
+				continue
+			}
+			seen[msgs[i].ID] = true
+
 			common := msgs[i].ToCommon(channelName, guildID, guildName)
 			if filter.Match(common, filterOpts) {
 				allCommon = append(allCommon, common)
 			}
 		}
 
-		offset += len(msgs)
+		offset += 25
 		if offset >= resp.TotalResults {
 			break
 		}
