@@ -123,6 +123,41 @@ func saveDiscordToken(token string) error {
 	return os.WriteFile(path, []byte(token), 0o600)
 }
 
+// saveTelegramConfig persists Telegram API credentials to the config file.
+func saveTelegramConfig(apiID, apiHash string) error {
+	dir, err := configDir()
+	if err != nil {
+		return err
+	}
+
+	cfgPath := filepath.Join(dir, "purge.yaml")
+
+	// Read existing config if present.
+	existing, _ := os.ReadFile(cfgPath)
+	content := string(existing)
+
+	// Simple approach: if telegram section exists, we need to be careful.
+	// Use viper to set and write.
+	viper.Set("telegram.api_id", apiID)
+	viper.Set("telegram.api_hash", apiHash)
+
+	// If no config file is being used yet, set the path.
+	if viper.ConfigFileUsed() == "" {
+		viper.SetConfigFile(cfgPath)
+	}
+
+	// Try to write. If the file doesn't exist, create it.
+	if err := viper.WriteConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok || content == "" {
+			return viper.WriteConfigAs(cfgPath)
+		}
+		// File exists but can't write — try WriteConfigAs as fallback.
+		return viper.WriteConfig()
+	}
+
+	return nil
+}
+
 // telegramSessionPath returns the path for the Telegram session file.
 func telegramSessionPath() (string, error) {
 	dir, err := configDir()

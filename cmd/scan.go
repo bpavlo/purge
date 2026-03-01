@@ -205,15 +205,18 @@ func searchGuildAllMessages(ctx context.Context, client *discord.Client, userID,
 
 			chName := channelNameMap[msgs[i].ChannelID]
 			if chName == "" {
-				// Channel not in guild list (thread, forum post, archived).
+				// Channel not in guild list (thread, forum post, archived, deleted).
 				// Try fetching individually.
 				ch, err := client.GetChannel(ctx, msgs[i].ChannelID)
 				if err == nil && ch.Name != "" {
 					chName = ch.Name
-					channelNameMap[msgs[i].ChannelID] = chName
 				} else {
-					chName = msgs[i].ChannelID
+					chName = "#deleted-channel-" + msgs[i].ChannelID
+					if viper.GetBool("verbose") {
+						fmt.Fprintf(os.Stderr, "Warning: could not resolve channel %s (likely deleted)\n", msgs[i].ChannelID)
+					}
 				}
+				channelNameMap[msgs[i].ChannelID] = chName
 			}
 			common := msgs[i].ToCommon(chName, guildID, guildName)
 			if filter.Match(common, filterOpts) {

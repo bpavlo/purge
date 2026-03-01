@@ -154,6 +154,12 @@ func runAuthTelegram() error {
 		return fmt.Errorf("Telegram authentication failed: %w", err)
 	}
 
+	// Persist API credentials to config file so subsequent commands work.
+	if err := saveTelegramConfig(apiIDStr, apiHash); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not save Telegram credentials to config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "You may need to set telegram.api_id and telegram.api_hash in your config file manually.\n")
+	}
+
 	fmt.Println()
 	fmt.Println("Telegram session saved. You can now use 'purge scan telegram' and other commands.")
 
