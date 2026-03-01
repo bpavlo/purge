@@ -42,6 +42,23 @@ func (c *Client) FindGuild(ctx context.Context, nameOrID string) (*Guild, error)
 	return nil, fmt.Errorf("guild not found: %s", nameOrID)
 }
 
+// GetChannel returns a single channel by ID.
+func (c *Client) GetChannel(ctx context.Context, channelID string) (*Channel, error) {
+	path := fmt.Sprintf("/channels/%s", channelID)
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("fetching channel %s: %w", channelID, err)
+	}
+	defer resp.Body.Close()
+
+	var ch Channel
+	if err := json.NewDecoder(resp.Body).Decode(&ch); err != nil {
+		return nil, fmt.Errorf("decoding channel: %w", err)
+	}
+
+	return &ch, nil
+}
+
 // GetChannels returns all channels in a guild.
 func (c *Client) GetChannels(ctx context.Context, guildID string) ([]Channel, error) {
 	path := fmt.Sprintf("/guilds/%s/channels", guildID)

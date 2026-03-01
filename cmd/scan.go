@@ -205,7 +205,15 @@ func searchGuildAllMessages(ctx context.Context, client *discord.Client, userID,
 
 			chName := channelNameMap[msgs[i].ChannelID]
 			if chName == "" {
-				chName = msgs[i].ChannelID
+				// Channel not in guild list (thread, forum post, archived).
+				// Try fetching individually.
+				ch, err := client.GetChannel(ctx, msgs[i].ChannelID)
+				if err == nil && ch.Name != "" {
+					chName = ch.Name
+					channelNameMap[msgs[i].ChannelID] = chName
+				} else {
+					chName = msgs[i].ChannelID
+				}
 			}
 			common := msgs[i].ToCommon(chName, guildID, guildName)
 			if filter.Match(common, filterOpts) {
