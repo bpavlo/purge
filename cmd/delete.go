@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -50,15 +53,73 @@ By default, a confirmation prompt is shown before deletion.`,
 			}
 		}
 
+		var err error
 		switch platform {
 		case "discord":
-			return runDiscordDelete(fo, yes, dryRun, doArchive)
+			err = runDiscordDelete(fo, yes, dryRun, doArchive)
 		case "telegram":
-			return runTelegramDelete(fo, yes, dryRun, doArchive)
+			err = runTelegramDelete(fo, yes, dryRun, doArchive)
 		default:
 			return fmt.Errorf("unsupported platform: %s (use 'discord' or 'telegram')", platform)
 		}
+
+		if err != nil {
+			// Check for auth errors and exit with appropriate code.
+			var authErr *discord.ErrAuth
+			if errors.As(err, &authErr) {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(ExitAuthFailure)
+			}
+			if strings.Contains(err.Error(), "not authenticated") || strings.Contains(err.Error(), "authentication failed") {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(ExitAuthFailure)
+			}
+		}
+
+		return err
 	},
+}
+
+// promptResumeCheckpoint checks for an existing checkpoint and prompts the user to resume.
+// Returns the checkpoint to resume from (or nil for fresh start), and the checkpoint manager.
+func promptResumeCheckpoint(platform, target string) (*checkpoint.Checkpoint, *checkpoint.Manager, error) {
+	cpManager, err := checkpoint.NewManager("")
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating checkpoint manager: %w", err)
+	}
+
+	cp, err := cpManager.Load()
+	if err != nil {
+		return nil, cpManager, fmt.Errorf("loading checkpoint: %w", err)
+	}
+
+	if cp == nil {
+		return nil, cpManager, nil
+	}
+
+	// Check if checkpoint matches current operation.
+	if cp.Platform == platform && (cp.ServerID == target || cp.ChatID == target) {
+		fmt.Fprintf(os.Stderr, "Found checkpoint from %s: %d already deleted. Resume? [y/N] ",
+			cp.StartedAt.Format("2006-01-02 15:04:05"), cp.DeletedCount)
+
+		reader := bufio.NewReader(os.Stdin)
+		answer, _ := reader.ReadString('\n')
+		answer = strings.TrimSpace(strings.ToLower(answer))
+
+		if answer == "y" || answer == "yes" {
+			return cp, cpManager, nil
+		}
+
+		// User chose not to resume — clear checkpoint.
+		_ = cpManager.Clear()
+		return nil, cpManager, nil
+	}
+
+	// Checkpoint exists but doesn't match current target.
+	fmt.Fprintf(os.Stderr, "Warning: existing checkpoint for %s/%s does not match current target %s/%s. Starting fresh.\n",
+		cp.Platform, cp.ServerID+cp.ChatID, platform, target)
+	_ = cpManager.Clear()
+	return nil, cpManager, nil
 }
 
 func runDiscordDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
@@ -78,6 +139,11 @@ func runDiscordDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 	ctx := context.Background()
 	user, err := client.ValidateToken(ctx)
 	if err != nil {
+		// Wrap auth errors for proper exit code handling.
+		var authErr *discord.ErrAuth
+		if errors.As(err, &authErr) {
+			return err
+		}
 		return fmt.Errorf("authentication failed: %w", err)
 	}
 
@@ -129,6 +195,20 @@ func runDiscordDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 		return fmt.Errorf("specify --server, --channel, or --dms to target messages")
 	}
 
+	// Check for checkpoint resume before scanning.
+	cpTarget := guildID
+	if fo.DMs {
+		cpTarget = "dms"
+	}
+	if fo.Channel != "" {
+		cpTarget = fo.Channel
+	}
+
+	resumeCP, cpManager, err := promptResumeCheckpoint("discord", cpTarget)
+	if err != nil {
+		return err
+	}
+
 	// Collect all messages across channels.
 	type discordMsg struct {
 		channelID   string
@@ -152,6 +232,12 @@ func runDiscordDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 			common, err = fetchDiscordDMChannel(ctx, client, user.ID, ch, guildID, guildName, filterOpts)
 		}
 		if err != nil {
+			// Check for permission errors — skip channel with warning.
+			var forbiddenErr *discord.ErrForbidden
+			if errors.As(err, &forbiddenErr) {
+				fmt.Fprintf(os.Stderr, "Warning: skipping channel %s: insufficient permissions\n", chName)
+				continue
+			}
 			if viper.GetBool("verbose") {
 				fmt.Fprintf(os.Stderr, "Warning: error scanning channel %s: %v\n", chName, err)
 			}
@@ -168,6 +254,27 @@ func runDiscordDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 		}
 	}
 
+	// If resuming, skip messages up to last_processed_id and initialize counters.
+	deleted, failed, skipped := 0, 0, 0
+	startIdx := 0
+
+	if resumeCP != nil {
+		deleted = resumeCP.DeletedCount
+		failed = resumeCP.FailedCount
+		skipped = resumeCP.SkippedCount
+
+		for i, msg := range allMsgs {
+			if msg.messageID == resumeCP.LastProcessedID {
+				startIdx = i + 1
+				break
+			}
+		}
+		if startIdx > 0 {
+			fmt.Fprintf(os.Stderr, "Resuming from message %s (%d already processed)\n",
+				resumeCP.LastProcessedID, startIdx)
+		}
+	}
+
 	totalCount := len(allMsgs)
 
 	if totalCount == 0 {
@@ -175,9 +282,16 @@ func runDiscordDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 		return nil
 	}
 
+	remaining := totalCount - startIdx
+	if remaining <= 0 {
+		fmt.Println("All messages already processed.")
+		_ = cpManager.Clear()
+		return nil
+	}
+
 	// Dry run — just print what would be deleted.
 	if dryRun {
-		fmt.Printf("Dry run: would delete %d messages\n", totalCount)
+		fmt.Printf("Dry run: would delete %d messages\n", remaining)
 		return nil
 	}
 
@@ -189,7 +303,7 @@ func runDiscordDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 		// Group messages by channel for archiving.
 		channelMsgs := make(map[string][]types.Message)
 		channelNames := make(map[string]string)
-		for _, msg := range allMsgs {
+		for _, msg := range allMsgs[startIdx:] {
 			channelMsgs[msg.channelID] = append(channelMsgs[msg.channelID], *msg.common)
 			channelNames[msg.channelID] = msg.channelName
 		}
@@ -204,7 +318,7 @@ func runDiscordDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 				return fmt.Errorf("archiving messages for channel %s: %w", channelNames[chID], err)
 			}
 		}
-		fmt.Printf("Archived %d messages before deletion.\n", totalCount)
+		fmt.Printf("Archived %d messages before deletion.\n", remaining)
 	}
 
 	// Confirmation prompt.
@@ -217,30 +331,26 @@ func runDiscordDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 			target = fo.Channel
 		}
 
-		err := ui.ConfirmDeletion(totalCount, "discord", target, filterDescriptionString(fo), doArchive, os.Stdin, os.Stdout)
+		err := ui.ConfirmDeletion(remaining, "discord", target, filterDescriptionString(fo), doArchive, os.Stdin, os.Stdout)
 		if err != nil {
 			return err
 		}
 	}
 
-	// Set up checkpoint manager.
-	cpManager, err := checkpoint.NewManager("")
-	if err != nil {
-		return fmt.Errorf("creating checkpoint manager: %w", err)
-	}
+	// Set up signal handler.
 	stopSignal := cpManager.RegisterSignalHandler()
 	defer stopSignal()
 
 	mode := outputMode()
-	bar := ui.NewProgressBar(totalCount, "Deleting messages", mode)
+	bar := ui.NewProgressBar(remaining, "Deleting messages", mode)
+	verbose := viper.GetBool("verbose")
+	startedAt := time.Now()
 
 	// Set up rate limit event listener for progress bar updates.
 	rateLimitCh := make(chan discord.RateLimitEvent, 1)
 	client.SetRateLimitChannel(rateLimitCh)
 
-	deleted, failed, skipped := 0, 0, 0
-
-	for _, msg := range allMsgs {
+	for _, msg := range allMsgs[startIdx:] {
 		// Check for any pending rate limit notification.
 		select {
 		case evt := <-rateLimitCh:
@@ -248,14 +358,31 @@ func runDiscordDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 		default:
 		}
 
-		err := client.DeleteMessage(ctx, msg.channelID, msg.messageID)
+		alreadyDeleted, err := client.DeleteMessage(ctx, msg.channelID, msg.messageID)
 		if err != nil {
-			failed++
-			if viper.GetBool("verbose") {
-				fmt.Fprintf(os.Stderr, "Failed to delete message %s: %v\n", msg.messageID, err)
+			// Check for permission errors — skip with warning.
+			var forbiddenErr *discord.ErrForbidden
+			if errors.As(err, &forbiddenErr) {
+				skipped++
+				if verbose {
+					fmt.Fprintf(os.Stderr, "Skipped message %s in #%s: insufficient permissions\n", msg.messageID, msg.channelName)
+				}
+			} else {
+				failed++
+				if verbose {
+					fmt.Fprintf(os.Stderr, "Failed message %s: %v\n", msg.messageID, err)
+				}
+			}
+		} else if alreadyDeleted {
+			skipped++
+			if verbose {
+				fmt.Fprintf(os.Stderr, "Skipped message %s (already deleted)\n", msg.messageID)
 			}
 		} else {
 			deleted++
+			if verbose {
+				fmt.Fprintf(os.Stderr, "Deleted message %s in #%s\n", msg.messageID, msg.channelName)
+			}
 		}
 
 		// Restore normal description after successful request.
@@ -271,7 +398,7 @@ func runDiscordDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 			DeletedCount:    deleted,
 			FailedCount:     failed,
 			SkippedCount:    skipped,
-			StartedAt:       time.Now(),
+			StartedAt:       startedAt,
 		})
 	}
 
@@ -289,6 +416,11 @@ func runDiscordDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 		fmt.Println(jsonStr)
 	} else {
 		fmt.Println(ui.DeleteSummary(deleted, failed, skipped))
+	}
+
+	// Exit with partial failure code if some messages failed.
+	if deleted > 0 && failed > 0 {
+		os.Exit(ExitPartial)
 	}
 
 	return nil
@@ -321,7 +453,8 @@ func runTelegramDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 			return fmt.Errorf("checking auth: %w", err)
 		}
 		if !authorized {
-			return fmt.Errorf("not authenticated. Run 'purge auth telegram' first")
+			fmt.Fprintf(os.Stderr, "Error: not authenticated. Run 'purge auth telegram' first\n")
+			os.Exit(ExitAuthFailure)
 		}
 
 		_, err = tgClient.GetSelf(ctx)
@@ -353,6 +486,20 @@ func runTelegramDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 
 		if len(targetChats) == 0 && !fo.AllChats {
 			return fmt.Errorf("specify --chat, --dms, or --all-chats to target messages")
+		}
+
+		// Determine checkpoint target.
+		cpTarget := fo.Chat
+		if fo.DMs {
+			cpTarget = "dms"
+		}
+		if fo.AllChats {
+			cpTarget = "all-chats"
+		}
+
+		resumeCP, cpManager, err := promptResumeCheckpoint("telegram", cpTarget)
+		if err != nil {
+			return err
 		}
 
 		// Collect messages from all target chats.
@@ -458,10 +605,23 @@ func runTelegramDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 			}
 		}
 
+		// Set up checkpoint manager and signal handler.
+		stopSignal := cpManager.RegisterSignalHandler()
+		defer stopSignal()
+
 		mode := outputMode()
 		bar := ui.NewProgressBar(totalCount, "Deleting messages", mode)
+		verbose := viper.GetBool("verbose")
+		startedAt := time.Now()
 
-		deleted, failed := 0, 0
+		deleted, failed, skipped := 0, 0, 0
+
+		// If resuming, initialize counters from checkpoint.
+		if resumeCP != nil {
+			deleted = resumeCP.DeletedCount
+			failed = resumeCP.FailedCount
+			skipped = resumeCP.SkippedCount
+		}
 
 		for _, cm := range allChatMsgs {
 			revoke := cm.chat.Type == telegram.ChatTypePrivate
@@ -474,27 +634,50 @@ func runTelegramDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 			})
 			if err != nil {
 				failed += len(cm.msgIDs)
-				if viper.GetBool("verbose") {
-					fmt.Fprintf(os.Stderr, "Error deleting in chat %s: %v\n", cm.chat.Title, err)
+				if verbose {
+					fmt.Fprintf(os.Stderr, "Failed to delete in chat %s: %v\n", cm.chat.Title, err)
 				}
 			} else {
 				deleted += len(cm.msgIDs)
 				for i := 0; i < len(cm.msgIDs); i++ {
 					bar.Increment()
 				}
+				if verbose {
+					fmt.Fprintf(os.Stderr, "Deleted %d messages in %s\n", len(cm.msgIDs), cm.chat.Title)
+				}
 			}
+
+			// Save checkpoint after each chat's batch.
+			_ = cpManager.Save(checkpoint.Checkpoint{
+				Operation:       "delete",
+				Platform:        "telegram",
+				ChatID:          cpTarget,
+				LastProcessedID: fmt.Sprintf("%d", cm.msgIDs[len(cm.msgIDs)-1]),
+				DeletedCount:    deleted,
+				FailedCount:     failed,
+				SkippedCount:    skipped,
+				StartedAt:       startedAt,
+			})
 		}
 
 		bar.Finish()
 
+		// Clear checkpoint on successful completion.
+		_ = cpManager.Clear()
+
 		if mode == ui.ModeJSON {
-			jsonStr, err := ui.FormatDeleteJSON(deleted, failed, 0)
+			jsonStr, err := ui.FormatDeleteJSON(deleted, failed, skipped)
 			if err != nil {
 				return err
 			}
 			fmt.Println(jsonStr)
 		} else {
-			fmt.Println(ui.DeleteSummary(deleted, failed, 0))
+			fmt.Println(ui.DeleteSummary(deleted, failed, skipped))
+		}
+
+		// Exit with partial failure code if some messages failed.
+		if deleted > 0 && failed > 0 {
+			os.Exit(ExitPartial)
 		}
 
 		return nil

@@ -130,7 +130,7 @@ func (m *Manager) RegisterSignalHandler() func() {
 				_ = m.saveLocked(*m.current)
 			}
 			m.mu.Unlock()
-			os.Exit(1)
+			os.Exit(130)
 		case <-done:
 			return
 		}

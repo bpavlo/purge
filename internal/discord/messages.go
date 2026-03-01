@@ -208,25 +208,26 @@ func (c *Client) GetChannelMessages(ctx context.Context, channelID string, befor
 }
 
 // DeleteMessage deletes a single message from a channel.
-// Returns nil on success or if the message was already deleted (404).
-// Returns *ErrForbidden if the user lacks permission.
-func (c *Client) DeleteMessage(ctx context.Context, channelID, messageID string) error {
+// Returns (true, nil) if the message was already deleted (404).
+// Returns (false, nil) on successful deletion.
+// Returns (false, *ErrForbidden) if the user lacks permission.
+func (c *Client) DeleteMessage(ctx context.Context, channelID, messageID string) (alreadyDeleted bool, err error) {
 	path := fmt.Sprintf("/channels/%s/messages/%s", channelID, messageID)
 
 	// Use a dedicated route key for delete rate limiting
 	if err := c.rateLimiter.WaitRoute(ctx, "DELETE:message"); err != nil {
-		return fmt.Errorf("rate limiter wait: %w", err)
+		return false, fmt.Errorf("rate limiter wait: %w", err)
 	}
 
-	_, err := c.doRequest(ctx, http.MethodDelete, path, nil)
+	_, err = c.doRequest(ctx, http.MethodDelete, path, nil)
 	if err != nil {
-		// 404 means already deleted — treat as success
+		// 404 means already deleted
 		var notFoundErr *ErrNotFound
 		if errors.As(err, &notFoundErr) {
-			return nil
+			return true, nil
 		}
-		return fmt.Errorf("deleting message %s in channel %s: %w", messageID, channelID, err)
+		return false, fmt.Errorf("deleting message %s in channel %s: %w", messageID, channelID, err)
 	}
 
-	return nil
+	return false, nil
 }
