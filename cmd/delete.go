@@ -647,10 +647,6 @@ func runTelegramDelete(fo FilterOptions, yes, dryRun, doArchive bool) error {
 					fmt.Fprintf(os.Stderr, "Failed to delete in chat %s: %v\n", cm.chat.Title, err)
 				}
 			} else {
-				deleted += len(cm.msgIDs)
-				for i := 0; i < len(cm.msgIDs); i++ {
-					bar.Increment()
-				}
 				if verbose {
 					fmt.Fprintf(os.Stderr, "Deleted %d messages in %s\n", len(cm.msgIDs), cm.chat.Title)
 				}
