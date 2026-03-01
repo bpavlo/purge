@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -133,6 +134,12 @@ func runDiscordScan(fo FilterOptions) error {
 			allCommon, err = fetchDiscordDMChannel(ctx, client, user.ID, ch, guildID, guildName, filterOpts)
 		}
 		if err != nil {
+			// Check for permission errors — skip channel with warning.
+			var forbiddenErr *discord.ErrForbidden
+			if errors.As(err, &forbiddenErr) {
+				fmt.Fprintf(os.Stderr, "Warning: skipping #%s: insufficient permissions\n", chName)
+				continue
+			}
 			if viper.GetBool("verbose") {
 				fmt.Fprintf(os.Stderr, "Warning: error scanning channel %s: %v\n", chName, err)
 			}
